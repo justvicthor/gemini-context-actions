@@ -1,4 +1,7 @@
-# Gemini Context Actions (Chrome Extension)
+<h1>
+  <img src="icons/icon128.png" width="30" style="vertical-align: middle; margin-right: 4px; position: relative; top: -2px">
+  Gemini Context Actions (Chrome Extension)
+</h1>
 
 A Chrome extension that adds **Leo-style context-menu actions** for any selected text, powered by **Google Gemini**.
 
