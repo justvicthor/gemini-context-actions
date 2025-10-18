@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gemini Context Actions – Options</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 2rem; }
+    label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+    input[type=text] { width: 560px; max-width: 100%; padding: 8px; font-size: 14px; }
+    button { margin-top: 1rem; padding: 8px 12px; }
+    .hint { color: #555; margin-top: 0.5rem; }
+    .ok { color: #0a7b26; }
+    .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Gemini Context Actions – Options</h1>
+  <p>Paste your <strong>Google Gemini API key</strong> below. It will be stored in Chrome’s <code>storage.sync</code>.</p>
+
+  <label for="key">API key</label>
+  <input id="key" type="text" placeholder="AIza..." />
+  <div class="hint">Get one from Google AI Studio. Your key is used only to call the Generative Language API.</div>
+
+  <div>
+    <button id="save">Save</button>
+    <button id="test">Test</button>
+    <span id="status"></span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

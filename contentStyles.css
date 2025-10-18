@@ -1,0 +1,56 @@
+/* Minimal, clean floating panel inspired by Leo-style overlays */
+#gca-panel {
+  position: absolute;
+  z-index: 2147483647;
+  width: min(640px, calc(100vw - 24px));
+  background: #0f172a; /* slate-900 */
+  color: #e5e7eb; /* gray-200 */
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  overflow: hidden;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+#gca-panel .gca-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #111827; /* gray-900 */
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  user-select: none;
+}
+
+#gca-panel .gca-spacer { flex: 1; }
+
+#gca-panel button {
+  background: #1f2937;
+  color: #e5e7eb;
+  border: 1px solid rgba(148,163,184,0.3);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#gca-panel button:hover { background: #374151; }
+
+#gca-textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 12px;
+  border: none;
+  outline: none;
+  background: #0b1220;
+  color: #e5e7eb;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+#gca-panel .gca-footer {
+  padding: 8px 12px 12px;
+  font-size: 12px;
+  color: #9ca3af;
+}
