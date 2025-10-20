@@ -1,4 +1,4 @@
-// contentScript.js — Injects a floating panel, positions near selection, handles ask/copy/replace/close.
+// contentScript.js — Injects a floating panel, positions near selection, handles ask/copy/replace/close, and highlighting.
 
 const STATE = {
   panel: null,
@@ -154,13 +154,60 @@ function showResult(text) {
   hideAskUI();
 }
 
+/* ---------- Highlighting ---------- */
+
+function highlightSelection(color) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || !sel.rangeCount || sel.isCollapsed) {
+    // Optionally surface a subtle hint via the panel if present
+    try {
+      showError("No text selected to highlight.");
+    } catch {}
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  // Avoid inputs/textareas
+  if (range.commonAncestorContainer && range.commonAncestorContainer.nodeType === 1) {
+    const el = range.commonAncestorContainer;
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return;
+  }
+
+  const wrapper = document.createElement("span");
+  wrapper.className = `gca-highlight gca-h-${color}`;
+  // Try surroundContents; if it fails (DOMException), fallback to extract/insert
+  try {
+    range.surroundContents(wrapper);
+  } catch {
+    const frag = range.extractContents();
+    wrapper.appendChild(frag);
+    range.insertNode(wrapper);
+  }
+  // Keep selection visible on the new highlight for quick re-actions
+  sel.removeAllRanges();
+  const newRange = document.createRange();
+  newRange.selectNodeContents(wrapper);
+  sel.addRange(newRange);
+}
+
+function collectHighlightedText() {
+  const chunks = [];
+  document.querySelectorAll(".gca-highlight").forEach((el) => {
+    const t = (el.textContent || "").trim();
+    if (t) chunks.push(t);
+  });
+  return chunks.join("\n\n");
+}
+
 /* ---------- Ask flow UI ---------- */
 
 function openAskUI(requestId, originalText) {
   const panel = ensurePanel();
   placePanelNearSelection(panel);
   STATE.requestId = requestId;
-  STATE.originalText = originalText || "";
+
+  // If no selection text was passed, fall back to all highlighted text on the page
+  const fallbackCtx = (!originalText || !originalText.trim()) ? collectHighlightedText() : "";
+  STATE.originalText = (originalText && originalText.trim()) ? originalText : fallbackCtx;
 
   panel.querySelector("#gca-title").textContent = "Ask a question";
   STATE.textarea.value = "";
@@ -201,7 +248,7 @@ function submitAsk() {
     type: "gca:ask:query",
     requestId: STATE.requestId,
     question: q,
-    context: STATE.originalText,
+    context: STATE.originalText,    // <- selection or all highlights
   }, () => {
     // Re-enable (result/error will come as a separate message)
     STATE.askInput.disabled = false;
@@ -240,6 +287,10 @@ chrome.runtime.onMessage.addListener((msg) => {
 
     case "gca:ask:open":
       openAskUI(msg.requestId, msg.originalText);
+      break;
+
+    case "gca:highlight":
+      highlightSelection(msg.color);
       break;
   }
 });

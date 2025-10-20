@@ -14,6 +14,14 @@ const MID = {
   TRANSLATE_IT: "gca_translate_it",
   TRANSLATE_ES: "gca_translate_es",
 
+  HIGHLIGHT: "gca_highlight",
+  HL_YELLOW: "gca_highlight_yellow",
+  HL_ORANGE: "gca_highlight_orange",
+  HL_RED:    "gca_highlight_red",
+  HL_GREEN:  "gca_highlight_green",
+  HL_CYAN:   "gca_highlight_cyan",
+  HL_PURPLE: "gca_highlight_purple",
+
   QUICK: "gca_quick",
   SUMMARIZE: "gca_summarize",
   EXPLAIN: "gca_explain",
@@ -64,6 +72,15 @@ function createMenus() {
     chrome.contextMenus.create({ id: MID.TRANSLATE_DE, parentId: MID.TRANSLATE, title: "German", contexts: ["selection"] });
     chrome.contextMenus.create({ id: MID.TRANSLATE_IT, parentId: MID.TRANSLATE, title: "Italian", contexts: ["selection"] });
     chrome.contextMenus.create({ id: MID.TRANSLATE_ES, parentId: MID.TRANSLATE, title: "Spanish", contexts: ["selection"] });
+
+    // Highlight
+    chrome.contextMenus.create({ id: MID.HIGHLIGHT, title: "Highlight", contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MID.HL_YELLOW, parentId: MID.HIGHLIGHT, title: "Yellow", contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MID.HL_ORANGE, parentId: MID.HIGHLIGHT, title: "Orange", contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MID.HL_RED,    parentId: MID.HIGHLIGHT, title: "Red",    contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MID.HL_GREEN,  parentId: MID.HIGHLIGHT, title: "Green",  contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MID.HL_CYAN,   parentId: MID.HIGHLIGHT, title: "Cyan",   contexts: ["selection"] });
+    chrome.contextMenus.create({ id: MID.HL_PURPLE, parentId: MID.HIGHLIGHT, title: "Purple", contexts: ["selection"] });
 
     // Quick actions
     chrome.contextMenus.create({ id: MID.QUICK, title: "Quick actions", contexts: ["selection"] });
@@ -200,6 +217,21 @@ async function callGemini(apiKey, prompt) {
 // ---- Menu clicks ----
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const { menuItemId } = info;
+
+  // Highlight flow -> No Gemini call involved: just message the content script to do the DOM work.
+  if (
+  menuItemId === MID.HL_YELLOW || menuItemId === MID.HL_ORANGE || menuItemId === MID.HL_RED ||
+  menuItemId === MID.HL_GREEN  || menuItemId === MID.HL_CYAN   || menuItemId === MID.HL_PURPLE
+) {
+  const color =
+    menuItemId === MID.HL_YELLOW ? "yellow" :
+    menuItemId === MID.HL_ORANGE ? "orange" :
+    menuItemId === MID.HL_RED    ? "red"    :
+    menuItemId === MID.HL_GREEN  ? "green"  :
+    menuItemId === MID.HL_CYAN   ? "cyan"   : "purple";
+  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "gca:highlight", color });
+  return;
+}
 
   //NEW: open the ask UI in the content script
   if (menuItemId === MID.ASK) {

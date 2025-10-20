@@ -97,3 +97,27 @@
   text-overflow: ellipsis;
 }
 
+/* Inline highlights created by the extension */
+.gca-highlight {
+  padding: 0 0.1em;
+  border-radius: 3px;
+}
+
+/* Colors */
+.gca-h-yellow { background: #fff59d; color: #111827; }
+.gca-h-orange { background: #ffcc80; color: #111827; }
+.gca-h-red    { background: #ff8a80; color: #111827; }
+.gca-h-green  { background: #a5d6a7; color: #111827; }
+.gca-h-cyan   { background: #80deea; color: #111827; }
+.gca-h-purple { background: #ce93d8; color: #111827; }
+
+/* Context info strip under Ask bar */
+#gca-panel .gca-ctxinfo {
+  padding: 6px 10px 0;
+  font-size: 12px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
