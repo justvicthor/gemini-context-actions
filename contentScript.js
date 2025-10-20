@@ -1,9 +1,13 @@
-// contentScript.js — Injects a floating panel, positions near selection, handles copy/replace/close.
+// contentScript.js — Injects a floating panel, positions near selection, handles ask/copy/replace/close.
 
 const STATE = {
   panel: null,
   textarea: null,
   header: null,
+  askbar: null,
+  askInput: null,
+  askBtn: null,
+  ctxInfo: null,
   requestId: null,
   originalText: null,
 };
@@ -22,8 +26,18 @@ function ensurePanel() {
       <button id="gca-settings" title="Settings">Settings</button>
       <button id="gca-close" title="Close">✕</button>
     </div>
+
+    <!-- Ask bar (hidden by default) -->
+    <div class="gca-ask" id="gca-ask" style="display:none;">
+      <input id="gca-question" type="text" placeholder="Type your question…" />
+      <button id="gca-ask-btn">Ask</button>
+    </div>
+
+    <!-- Tiny context preview (hidden by default) -->
+    <div class="gca-ctxinfo" id="gca-ctxinfo" style="display:none;"></div>
+
     <textarea id="gca-textarea" placeholder="Working with Gemini…" rows="10"></textarea>
-    <div class="gca-footer">Tip: Use right‑click on selected text to run another action.</div>
+    <div class="gca-footer">Tip: Use right-click on selected text to run another action.</div>
   `;
 
   document.documentElement.appendChild(panel);
@@ -32,6 +46,10 @@ function ensurePanel() {
   STATE.panel = panel;
   STATE.textarea = panel.querySelector("#gca-textarea");
   STATE.header = panel.querySelector("#gca-header");
+  STATE.askbar = panel.querySelector("#gca-ask");
+  STATE.askInput = panel.querySelector("#gca-question");
+  STATE.askBtn = panel.querySelector("#gca-ask-btn");
+  STATE.ctxInfo = panel.querySelector("#gca-ctxinfo");
 
   // Dragging
   makeDraggable(panel, STATE.header);
@@ -46,6 +64,22 @@ function ensurePanel() {
     chrome.runtime.sendMessage({ type: "gca:openOptions" });
   });
 
+  // Ask handlers
+  STATE.askBtn.addEventListener("click", submitAsk);
+  STATE.askInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitAsk();
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && STATE.panel && document.body.contains(STATE.panel)) {
+      STATE.panel.remove();
+    }
+  });
+
   return panel;
 }
 
@@ -55,16 +89,14 @@ function makeDraggable(el, handle) {
   handle.addEventListener("mousedown", (e) => {
     dragging = true;
     startX = e.clientX; startY = e.clientY;
-    const r = el.getBoundingClientRect();
-    origX = r.left; origY = r.top;
+    const r = el.getBoundingClientRect(); origX = r.left; origY = r.top;
     e.preventDefault();
   });
   document.addEventListener("mousemove", (e) => {
     if (!dragging) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
     el.style.left = Math.max(8, origX + dx) + "px";
-    el.style.top = Math.max(8, origY + dy) + "px";
+    el.style.top  = Math.max(8, origY + dy) + "px";
   });
   document.addEventListener("mouseup", () => dragging = false);
 }
@@ -80,7 +112,7 @@ function placePanelNearSelection(panel) {
     }
   }
   panel.style.left = x + "px";
-  panel.style.top = y + "px";
+  panel.style.top  = y + "px";
 }
 
 function replaceCurrentSelection(text) {
@@ -94,33 +126,97 @@ function replaceCurrentSelection(text) {
 function showLoading(title) {
   const panel = ensurePanel();
   placePanelNearSelection(panel);
-  const titleEl = panel.querySelector("#gca-title");
-  titleEl.textContent = title || "Gemini Context Actions";
+  panel.querySelector("#gca-title").textContent = title || "Gemini Context Actions";
   STATE.textarea.value = "Generating with Gemini…";
+  hideAskUI();
 }
 
 function showNeedKey() {
   const panel = ensurePanel();
   placePanelNearSelection(panel);
-  const titleEl = panel.querySelector("#gca-title");
-  titleEl.textContent = "API key required";
+  panel.querySelector("#gca-title").textContent = "API key required";
   STATE.textarea.value = "No Gemini API key set. Click Settings to open the options page and add your key.";
+  hideAskUI();
 }
 
 function showError(message) {
   const panel = ensurePanel();
   placePanelNearSelection(panel);
-  const titleEl = panel.querySelector("#gca-title");
-  titleEl.textContent = "Error";
+  panel.querySelector("#gca-title").textContent = "Error";
   STATE.textarea.value = message;
+  hideAskUI();
 }
 
 function showResult(text) {
   const panel = ensurePanel();
-  const titleEl = panel.querySelector("#gca-title");
-  titleEl.textContent = "Result";
+  panel.querySelector("#gca-title").textContent = "✦ Ask Gemini";
   STATE.textarea.value = text;
+  hideAskUI();
 }
+
+/* ---------- Ask flow UI ---------- */
+
+function openAskUI(requestId, originalText) {
+  const panel = ensurePanel();
+  placePanelNearSelection(panel);
+  STATE.requestId = requestId;
+  STATE.originalText = originalText || "";
+
+  panel.querySelector("#gca-title").textContent = "Ask a question";
+  STATE.textarea.value = "";
+  STATE.askbar.style.display = "flex";
+  STATE.askInput.value = "";
+  STATE.askInput.focus();
+
+  // Show captured context (preview + length)
+  if (STATE.originalText) {
+    const preview = ellipsize(STATE.originalText, 140);
+    STATE.ctxInfo.style.display = "block";
+    STATE.ctxInfo.textContent = `Using selection as context (${STATE.originalText.length} chars): ${preview}`;
+  } else {
+    STATE.ctxInfo.style.display = "none";
+    STATE.ctxInfo.textContent = "";
+  }
+}
+
+function hideAskUI() {
+  if (STATE.askbar) STATE.askbar.style.display = "none";
+  if (STATE.ctxInfo) {
+    STATE.ctxInfo.style.display = "none";
+    STATE.ctxInfo.textContent = "";
+  }
+}
+
+function submitAsk() {
+  const q = (STATE.askInput?.value || "").trim();
+  if (!q) return;
+
+  STATE.textarea.value = "Asking Gemini…";
+
+  // Disable while sending to avoid double submits
+  STATE.askInput.disabled = true;
+  STATE.askBtn.disabled = true;
+
+  chrome.runtime.sendMessage({
+    type: "gca:ask:query",
+    requestId: STATE.requestId,
+    question: q,
+    context: STATE.originalText,
+  }, () => {
+    // Re-enable (result/error will come as a separate message)
+    STATE.askInput.disabled = false;
+    STATE.askBtn.disabled = false;
+  });
+}
+
+/* ---------- Utils ---------- */
+
+function ellipsize(text, maxLen) {
+  if (!text) return "";
+  return text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
+}
+
+/* ---------- Messaging ---------- */
 
 chrome.runtime.onMessage.addListener((msg) => {
   switch (msg?.type) {
@@ -129,14 +225,21 @@ chrome.runtime.onMessage.addListener((msg) => {
       STATE.originalText = msg.originalText;
       showLoading(msg.actionLabel || "Working…");
       break;
+
     case "gca:needKey":
       if (STATE.requestId === msg.requestId) showNeedKey();
       break;
+
     case "gca:result":
-      if (STATE.requestId === msg.requestId) showResult(msg.result);
+      if (!STATE.requestId || STATE.requestId === msg.requestId) showResult(msg.result);
       break;
+
     case "gca:error":
       showError(msg.message || "Unknown error");
+      break;
+
+    case "gca:ask:open":
+      openAskUI(msg.requestId, msg.originalText);
       break;
   }
 });

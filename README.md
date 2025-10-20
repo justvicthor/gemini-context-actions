@@ -1,7 +1,11 @@
-# Gemini Context Actions (Chrome Extension)
+<h1>
+  <img src="icons/icon128.png" width="30" style="vertical-align: middle; margin-right: 4px; position: relative; top: -0px">
+  Gemini Context Actions (Chrome Extension)
+</h1>
 
 A Chrome extension that adds **Leo-style context-menu actions** for any selected text, powered by **Google Gemini**.
 
+* **Ask a question** → type a question about the selected text and get an answer from the model (uses the selection as context).
 * **Translate** → English, French, German, Italian, Spanish (shown first in the menu)
 * **Quick actions** → Summarize, Explain
 * **Rewrite** → Paraphrase, Improve, **Change tone** → Academic / Professional / Persuasive / Casual / Funny
