@@ -1,4 +1,4 @@
-// contentScript.js — Injects a floating panel, positions near selection, handles ask/copy/replace/close, and highlighting.
+// contentScript.js — Floating panel for Gemini actions + inline highlighting with removable bubbles.
 
 const STATE = {
   panel: null,
@@ -80,6 +80,26 @@ function ensurePanel() {
     }
   });
 
+  /* // Delegated click for highlight bubbles (removed in favor of direct handlers to avoid selection issues)
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".gca-handle");
+    if (btn) {
+      const span = btn.closest(".gca-highlight");
+      if (span) {
+        unwrapHighlight(span);
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+  }); */
+
+  // Toggle sticky handle visibility when a highlight itself is clicked
+  document.addEventListener("click", (e) => {
+    const span = e.target.closest(".gca-highlight");
+    if (!span) return;
+    span.classList.toggle("gca-h-active");
+  });
+
   return panel;
 }
 
@@ -156,13 +176,37 @@ function showResult(text) {
 
 /* ---------- Highlighting ---------- */
 
+function decorateHighlight(span) {
+  // Ensure base class and a removable handle
+  span.classList.add("gca-highlight");
+
+  let btn = span.querySelector(".gca-handle");
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.className = "gca-handle";
+    btn.title = "Remove highlight";
+    btn.setAttribute("aria-label", "Remove highlight");
+    btn.type = "button";
+    btn.textContent = "×";
+    btn.style.userSelect = "none";
+
+    // Remove on mousedown/click to avoid selection grabbing the event
+    const remove = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      unwrapHighlight(span);
+    };
+    btn.addEventListener("mousedown", remove, { capture: true });
+    btn.addEventListener("click", remove, { capture: true });
+
+    span.appendChild(btn);
+  }
+}
+
 function highlightSelection(color) {
   const sel = window.getSelection && window.getSelection();
   if (!sel || !sel.rangeCount || sel.isCollapsed) {
-    // Optionally surface a subtle hint via the panel if present
-    try {
-      showError("No text selected to highlight.");
-    } catch {}
+    try { showError("No text selected to highlight."); } catch {}
     return;
   }
   const range = sel.getRangeAt(0);
@@ -174,7 +218,6 @@ function highlightSelection(color) {
 
   const wrapper = document.createElement("span");
   wrapper.className = `gca-highlight gca-h-${color}`;
-  // Try surroundContents; if it fails (DOMException), fallback to extract/insert
   try {
     range.surroundContents(wrapper);
   } catch {
@@ -182,17 +225,47 @@ function highlightSelection(color) {
     wrapper.appendChild(frag);
     range.insertNode(wrapper);
   }
-  // Keep selection visible on the new highlight for quick re-actions
+  decorateHighlight(wrapper);
+
+  // Reselect the new highlight
   sel.removeAllRanges();
   const newRange = document.createRange();
   newRange.selectNodeContents(wrapper);
   sel.addRange(newRange);
 }
 
+function unwrapHighlight(span) {
+  if (!span || !span.parentNode) return;
+
+  // Place caret just after the span once it's removed (nice UX)
+  const after = document.createRange();
+  after.setStartAfter(span);
+  after.collapse(true);
+
+  // Remove the handle and move children out
+  span.querySelectorAll(".gca-handle").forEach((n) => n.remove());
+  const parent = span.parentNode;
+  while (span.firstChild) parent.insertBefore(span.firstChild, span);
+  parent.removeChild(span);
+
+  // Restore selection/caret
+  const sel = window.getSelection && window.getSelection();
+  if (sel) {
+    sel.removeAllRanges();
+    sel.addRange(after);
+  }
+}
+
+function getHighlightText(span) {
+  const clone = span.cloneNode(true);
+  clone.querySelectorAll(".gca-handle").forEach((n) => n.remove());
+  return (clone.textContent || "").trim();
+}
+
 function collectHighlightedText() {
   const chunks = [];
   document.querySelectorAll(".gca-highlight").forEach((el) => {
-    const t = (el.textContent || "").trim();
+    const t = getHighlightText(el);
     if (t) chunks.push(t);
   });
   return chunks.join("\n\n");
@@ -215,7 +288,6 @@ function openAskUI(requestId, originalText) {
   STATE.askInput.value = "";
   STATE.askInput.focus();
 
-  // Show captured context (preview + length)
   if (STATE.originalText) {
     const preview = ellipsize(STATE.originalText, 140);
     STATE.ctxInfo.style.display = "block";

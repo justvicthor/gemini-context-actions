@@ -121,3 +121,59 @@
   text-overflow: ellipsis;
 }
 
+/* Inline highlights created by the extension */
+.gca-highlight {
+  position: relative;
+  padding: 0 0.1em;
+  border-radius: 3px;
+  transition: box-shadow 160ms ease, outline-color 160ms ease;
+  outline: 2px solid transparent; /* becomes visible on hover/active */
+}
+
+/* Colors */
+.gca-h-yellow { background: #fff59d; color: #111827; }
+.gca-h-orange { background: #ffcc80; color: #111827; }
+.gca-h-red    { background: #ff8a80; color: #111827; }
+.gca-h-green  { background: #a5d6a7; color: #111827; }
+.gca-h-cyan   { background: #80deea; color: #111827; }
+.gca-h-purple { background: #ce93d8; color: #111827; }
+
+/* Hover/active affordance */
+.gca-highlight:hover,
+.gca-highlight.gca-h-active {
+  outline-color: rgba(0,0,0,0.45);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;
+}
+
+/* Small remove bubble */
+.gca-handle {
+  position: absolute;
+  left: -10px;
+  top: -9px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #e5e7eb;
+  border: 1px solid rgba(0,0,0,0.55);
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: none;
+  z-index: 2147483646;
+  user-select: none;
+}
+
+/* Show bubble on hover or when the highlight is clicked (sticky) */
+.gca-highlight:hover > .gca-handle,
+.gca-highlight.gca-h-active > .gca-handle {
+  display: inline-block;
+}
+
+/* Don't let the bubble get selected with text */
+.gca-handle::selection { background: transparent; }
+
+
