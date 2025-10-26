@@ -10,9 +10,34 @@ const STATE = {
   ctxInfo: null,
   requestId: null,
   originalText: null,
+  listenersBound: false, // ensure doc-level listeners only once
 };
 
+/* ---------- Helpers for panel lifecycle ---------- */
+
+function inDOM(node) {
+  return !!(node && node.ownerDocument && node.ownerDocument.contains(node));
+}
+
+function destroyPanel() {
+  if (STATE.panel && inDOM(STATE.panel)) {
+    STATE.panel.remove();
+  }
+  // clear panel-scoped refs; doc listeners remain (they're idempotent/singleton)
+  STATE.panel = null;
+  STATE.textarea = null;
+  STATE.header = null;
+  STATE.askbar = null;
+  STATE.askInput = null;
+  STATE.askBtn = null;
+  STATE.ctxInfo = null;
+}
+
 function ensurePanel() {
+  // If we still have a reference to a removed panel, rebuild
+  if (!inDOM(STATE.panel)) {
+    STATE.panel = null;
+  }
   if (STATE.panel) return STATE.panel;
 
   const panel = document.createElement("div");
@@ -55,11 +80,11 @@ function ensurePanel() {
   makeDraggable(panel, STATE.header);
 
   // Buttons
-  panel.querySelector("#gca-close").addEventListener("click", () => panel.remove());
+  panel.querySelector("#gca-close").addEventListener("click", () => destroyPanel());
   panel.querySelector("#gca-copy").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(STATE.textarea.value || ""); } catch {}
+    try { await navigator.clipboard.writeText(STATE.textarea?.value || ""); } catch {}
   });
-  panel.querySelector("#gca-replace").addEventListener("click", () => replaceCurrentSelection(STATE.textarea.value || ""));
+  panel.querySelector("#gca-replace").addEventListener("click", () => replaceCurrentSelection(STATE.textarea?.value || ""));
   panel.querySelector("#gca-settings").addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "gca:openOptions" });
   });
@@ -73,35 +98,27 @@ function ensurePanel() {
     }
   });
 
-  // Close on Escape
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && STATE.panel && document.body.contains(STATE.panel)) {
-      STATE.panel.remove();
-    }
-  });
+  // Doc-level listeners (bind once)
+  if (!STATE.listenersBound) {
+    STATE.listenersBound = true;
 
-  /* // Delegated click for highlight bubbles (removed in favor of direct handlers to avoid selection issues)
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest(".gca-handle");
-    if (btn) {
-      const span = btn.closest(".gca-highlight");
-      if (span) {
-        unwrapHighlight(span);
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }
-  }); */
+    // Close on Escape
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && STATE.panel && inDOM(STATE.panel)) destroyPanel();
+    });
 
-  // Toggle sticky handle visibility when a highlight itself is clicked
-  document.addEventListener("click", (e) => {
-    const span = e.target.closest(".gca-highlight");
-    if (!span) return;
-    span.classList.toggle("gca-h-active");
-  });
+    // Toggle sticky handle visibility when a highlight itself is clicked
+    document.addEventListener("click", (e) => {
+      const span = e.target.closest(".gca-highlight");
+      if (!span) return;
+      span.classList.toggle("gca-h-active");
+    });
+  }
 
   return panel;
 }
+
+/* ---------- Panel UX helpers ---------- */
 
 function makeDraggable(el, handle) {
   let startX = 0, startY = 0, origX = 0, origY = 0, dragging = false;
@@ -190,7 +207,7 @@ function decorateHighlight(span) {
     btn.textContent = "×";
     btn.style.userSelect = "none";
 
-    // Remove on mousedown/click to avoid selection grabbing the event
+    // Remove on mousedown/click (capture) to avoid page/selection stealing the event
     const remove = (e) => {
       e.preventDefault();
       e.stopPropagation();

@@ -5,18 +5,19 @@
 
 A Chrome extension that adds **Leo-style context-menu actions** for any selected text, powered by **Google Gemini**.
 
-* **Ask a question** → type a question about the selected text and get an answer from the model (uses the selection as context).
-* **Translate** → English, French, German, Italian, Spanish (shown first in the menu)
-* **Quick actions** → Summarize, Explain
-* **Rewrite** → Paraphrase, Improve, **Change tone** → Academic / Professional / Persuasive / Casual / Funny
-* **Change length** → Shorten, Expand
-* **Create** → Tagline, **Social media** → Short post / Long post
+* **❓ Ask a question** → type a question about the selected text and get an answer from the model (uses the selection as context).
+* **🌍 Translate** → English, French, German, Italian, Spanish (shown first in the menu).
+* **🖍️ Highlight** → Yellow / Orange / Red / Green / Cyan / Purple (inline highlights with a tiny “×” bubble to remove).
+* **⚡ Quick actions** → Summarize, Explain.
+* **✍️ Rewrite** → Paraphrase, Improve, **Change tone** → Academic / Professional / Persuasive / Casual / Funny.
+* **📏 Change length** → Shorten, Expand
+* **🎯 Create** → Tagline, **Social media** → Short post / Long post.
 
 The result appears in a floating on-page panel with **Copy**, **Replace selection**, **Settings**, and **Close** controls.
 
 ---
 
-## Project structure
+## 📦 Project structure
 
 ```
 gemini-context-actions/
@@ -37,7 +38,7 @@ gemini-context-actions/
 
 ---
 
-## Install (from source)
+## 🚀 Install (from source)
 
 1. Clone or download this repository.
 2. Open **chrome://extensions**.
@@ -46,7 +47,7 @@ gemini-context-actions/
 
 ---
 
-## Add your Gemini API key
+## 🔑 Add your Gemini API key
 
 1. In **chrome://extensions**, find **Gemini Context Actions → Details → Extension options**
    (or right-click the toolbar icon → **Options**).
@@ -57,7 +58,7 @@ gemini-context-actions/
 
 ---
 
-## Use it
+## 🖱️ Use it
 
 1. Select text on any webpage.
 2. Right-click to open the context menu.
@@ -66,7 +67,7 @@ gemini-context-actions/
 
 ---
 
-## Changing the model (depending on the API you have)
+## 🔁 Changing the model (depending on the API you have)
 
 This extension talks to **Google AI Studio’s Generative Language API (REST v1)** by default.
 If your key has access to newer or different models, update the constant in **`background.js`**.
@@ -122,7 +123,7 @@ const MODEL = "google/gemini-2.5-flash"; // Vertex model name (your proxy maps i
 
 ---
 
-## Permissions
+## 🛡️ Permissions
 
 * `contextMenus` — add the right-click menu.
 * `activeTab`, `scripting` — communicate with the current page (to render results / replace text).
@@ -131,7 +132,7 @@ const MODEL = "google/gemini-2.5-flash"; // Vertex model name (your proxy maps i
 
 ---
 
-## Privacy & security
+## 🔒 Privacy & security
 
 * Your API key is saved via `chrome.storage.sync` and never injected into the web page.
 * Requests are performed in the **background service worker**.
@@ -139,7 +140,7 @@ const MODEL = "google/gemini-2.5-flash"; // Vertex model name (your proxy maps i
 
 ---
 
-## Troubleshooting
+## 🛠️ Troubleshooting
 
 * **404 NOT_FOUND** with `-latest` models
   Use the **v1** endpoint and a concrete model ID (e.g., `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`).
@@ -149,15 +150,18 @@ const MODEL = "google/gemini-2.5-flash"; // Vertex model name (your proxy maps i
 
 ---
 
-## Development
+## 🧑‍💻 Development
 
 * Edit code → **chrome://extensions → Reload** to pick up changes.
 * The floating panel’s look & feel is in **`contentStyles.css`**.
 
 ---
 
-## License
+## 📄 License
 
-MIT — see [LICENSE](LICENSE) if included; otherwise copy the MIT text into a new `LICENSE` file.
+**Copyright © 2025 Vittorio Pio Remigio Cozzoli**.
+This project is **licensed under the MIT License**. You are free to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software under the terms of the MIT license.
+
+See the full text in [LICENSE](LICENSE) file included in this repository.
 
 ---
