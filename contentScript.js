@@ -1,4 +1,6 @@
-// contentScript.js — Floating panel for Gemini actions + inline highlighting with removable bubbles.
+// contentScript.js — Floating panel + inline highlighting with removable bubbles + PERSISTENCE (TextQuote+Context anchors).
+
+const STORAGE_KEY = "gca_highlights_anchor_v1"; // storage schema
 
 const STATE = {
   panel: null,
@@ -10,34 +12,45 @@ const STATE = {
   ctxInfo: null,
   requestId: null,
   originalText: null,
-  listenersBound: false, // ensure doc-level listeners only once
+  listenersBound: false, // doc-level listeners only once
 };
 
-/* ---------- Helpers for panel lifecycle ---------- */
+/* ---------- Storage helpers ---------- */
+
+const storage = {
+  getAll: () =>
+    new Promise((resolve) => {
+      chrome.storage.local.get(STORAGE_KEY, (res) => resolve(res[STORAGE_KEY] || {}));
+    }),
+  setAll: (obj) =>
+    new Promise((resolve) => {
+      chrome.storage.local.set({ [STORAGE_KEY]: obj }, resolve);
+    }),
+};
+
+function pageKey() {
+  // Stable identity: origin + path (ignore ?query and #hash)
+  try {
+    const u = new URL(location.href);
+    return u.origin + u.pathname;
+  } catch {
+    return location.origin + location.pathname;
+  }
+}
+
+/* ---------- Panel lifecycle ---------- */
 
 function inDOM(node) {
   return !!(node && node.ownerDocument && node.ownerDocument.contains(node));
 }
 
 function destroyPanel() {
-  if (STATE.panel && inDOM(STATE.panel)) {
-    STATE.panel.remove();
-  }
-  // clear panel-scoped refs; doc listeners remain (they're idempotent/singleton)
-  STATE.panel = null;
-  STATE.textarea = null;
-  STATE.header = null;
-  STATE.askbar = null;
-  STATE.askInput = null;
-  STATE.askBtn = null;
-  STATE.ctxInfo = null;
+  if (STATE.panel && inDOM(STATE.panel)) STATE.panel.remove();
+  STATE.panel = STATE.textarea = STATE.header = STATE.askbar = STATE.askInput = STATE.askBtn = STATE.ctxInfo = null;
 }
 
 function ensurePanel() {
-  // If we still have a reference to a removed panel, rebuild
-  if (!inDOM(STATE.panel)) {
-    STATE.panel = null;
-  }
+  if (!inDOM(STATE.panel)) STATE.panel = null;
   if (STATE.panel) return STATE.panel;
 
   const panel = document.createElement("div");
@@ -64,10 +77,8 @@ function ensurePanel() {
     <textarea id="gca-textarea" placeholder="Working with Gemini…" rows="10"></textarea>
     <div class="gca-footer">Tip: Use right-click on selected text to run another action.</div>
   `;
-
   document.documentElement.appendChild(panel);
 
-  // Cache refs
   STATE.panel = panel;
   STATE.textarea = panel.querySelector("#gca-textarea");
   STATE.header = panel.querySelector("#gca-header");
@@ -76,42 +87,29 @@ function ensurePanel() {
   STATE.askBtn = panel.querySelector("#gca-ask-btn");
   STATE.ctxInfo = panel.querySelector("#gca-ctxinfo");
 
-  // Dragging
   makeDraggable(panel, STATE.header);
 
-  // Buttons
   panel.querySelector("#gca-close").addEventListener("click", () => destroyPanel());
   panel.querySelector("#gca-copy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(STATE.textarea?.value || ""); } catch {}
   });
   panel.querySelector("#gca-replace").addEventListener("click", () => replaceCurrentSelection(STATE.textarea?.value || ""));
-  panel.querySelector("#gca-settings").addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "gca:openOptions" });
-  });
+  panel.querySelector("#gca-settings").addEventListener("click", () => chrome.runtime.sendMessage({ type: "gca:openOptions" }));
 
-  // Ask handlers
   STATE.askBtn.addEventListener("click", submitAsk);
-  STATE.askInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      submitAsk();
-    }
-  });
+  STATE.askInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitAsk(); } });
 
-  // Doc-level listeners (bind once)
   if (!STATE.listenersBound) {
     STATE.listenersBound = true;
 
-    // Close on Escape
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && STATE.panel && inDOM(STATE.panel)) destroyPanel();
     });
 
-    // Toggle sticky handle visibility when a highlight itself is clicked
+    // Toggle sticky bubble on click
     document.addEventListener("click", (e) => {
       const span = e.target.closest(".gca-highlight");
-      if (!span) return;
-      span.classList.toggle("gca-h-active");
+      if (span) span.classList.toggle("gca-h-active");
     });
   }
 
@@ -191,15 +189,77 @@ function showResult(text) {
   hideAskUI();
 }
 
-/* ---------- Highlighting ---------- */
+/* ---------- Text index over the whole page (for robust anchors) ---------- */
+
+function allTextNodes(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      const p = n.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      const tag = p.tagName;
+      // skip script/style/noscript/hidden UI and our handles
+      if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") return NodeFilter.FILTER_REJECT;
+      if (p.classList.contains("gca-handle")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const out = [];
+  let n;
+  while ((n = walker.nextNode())) out.push(n);
+  return out;
+}
+
+function buildPageIndex() {
+  const nodes = allTextNodes(document.body);
+  let text = "";
+  const segments = []; // {node,start,end}
+  for (const node of nodes) {
+    const start = text.length;
+    text += node.nodeValue;
+    segments.push({ node, start, end: text.length });
+  }
+  return { text, segments };
+}
+
+function rangeToPageOffsets(range) {
+  const { segments } = buildPageIndex();
+  let start = -1, end = -1;
+  for (const seg of segments) {
+    if (seg.node === range.startContainer) start = seg.start + range.startOffset;
+    if (seg.node === range.endContainer)   end   = seg.start + range.endOffset;
+  }
+  return { start, end };
+}
+
+function pageOffsetsToRange(start, end) {
+  const { segments } = buildPageIndex();
+  const r = document.createRange();
+  let setStart = false, setEnd = false;
+  for (const seg of segments) {
+    if (!setStart && start >= seg.start && start <= seg.end) {
+      r.setStart(seg.node, start - seg.start);
+      setStart = true;
+    }
+    if (!setEnd && end >= seg.start && end <= seg.end) {
+      r.setEnd(seg.node, end - seg.start);
+      setEnd = true;
+      break;
+    }
+  }
+  return (setStart && setEnd) ? r : null;
+}
+
+/* ---------- Highlighting (with persistence) ---------- */
+
+function uuid() {
+  return "h-" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
+}
 
 function decorateHighlight(span) {
-  // Ensure base class and a removable handle
   span.classList.add("gca-highlight");
 
-  let btn = span.querySelector(".gca-handle");
-  if (!btn) {
-    btn = document.createElement("button");
+  if (!span.querySelector(".gca-handle")) {
+    const btn = document.createElement("button");
     btn.className = "gca-handle";
     btn.title = "Remove highlight";
     btn.setAttribute("aria-label", "Remove highlight");
@@ -207,11 +267,10 @@ function decorateHighlight(span) {
     btn.textContent = "×";
     btn.style.userSelect = "none";
 
-    // Remove on mousedown/click (capture) to avoid page/selection stealing the event
-    const remove = (e) => {
+    const remove = async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      unwrapHighlight(span);
+      await unwrapHighlight(span); // also deletes from storage
     };
     btn.addEventListener("mousedown", remove, { capture: true });
     btn.addEventListener("click", remove, { capture: true });
@@ -220,7 +279,7 @@ function decorateHighlight(span) {
   }
 }
 
-function highlightSelection(color) {
+async function highlightSelection(color) {
   const sel = window.getSelection && window.getSelection();
   if (!sel || !sel.rangeCount || sel.isCollapsed) {
     try { showError("No text selected to highlight."); } catch {}
@@ -233,43 +292,65 @@ function highlightSelection(color) {
     if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return;
   }
 
+  // Build page-level offsets and context (TextQuote + prefix/suffix)
+  const { text: pageText } = buildPageIndex();
+  const { start, end } = rangeToPageOffsets(range);
+  if (start < 0 || end < 0) return;
+
+  const quote = pageText.slice(start, end);
+  const ctxLen = 32;
+  const prefix = pageText.slice(Math.max(0, start - ctxLen), start);
+  const suffix = pageText.slice(end, Math.min(pageText.length, end + ctxLen));
+  const id = uuid();
+
+  // Wrap selection
   const wrapper = document.createElement("span");
   wrapper.className = `gca-highlight gca-h-${color}`;
-  try {
-    range.surroundContents(wrapper);
-  } catch {
-    const frag = range.extractContents();
-    wrapper.appendChild(frag);
-    range.insertNode(wrapper);
-  }
+  wrapper.dataset.gcaId = id;
+  try { range.surroundContents(wrapper); }
+  catch { const frag = range.extractContents(); wrapper.appendChild(frag); range.insertNode(wrapper); }
   decorateHighlight(wrapper);
 
-  // Reselect the new highlight
+  // Reselect new highlight
   sel.removeAllRanges();
   const newRange = document.createRange();
   newRange.selectNodeContents(wrapper);
   sel.addRange(newRange);
+
+  // Persist
+  const all = await storage.getAll();
+  const key = pageKey();
+  const arr = all[key] || [];
+  arr.push({ id, color, quote, prefix, suffix, createdAt: Date.now() });
+  all[key] = arr;
+  await storage.setAll(all);
 }
 
-function unwrapHighlight(span) {
+async function unwrapHighlight(span) {
   if (!span || !span.parentNode) return;
+  const id = span.dataset.gcaId;
 
-  // Place caret just after the span once it's removed (nice UX)
+  // Place caret after removed span
   const after = document.createRange();
   after.setStartAfter(span);
   after.collapse(true);
 
-  // Remove the handle and move children out
+  // Remove handle; unwrap
   span.querySelectorAll(".gca-handle").forEach((n) => n.remove());
   const parent = span.parentNode;
   while (span.firstChild) parent.insertBefore(span.firstChild, span);
   parent.removeChild(span);
 
-  // Restore selection/caret
+  // Restore caret
   const sel = window.getSelection && window.getSelection();
-  if (sel) {
-    sel.removeAllRanges();
-    sel.addRange(after);
+  if (sel) { sel.removeAllRanges(); sel.addRange(after); }
+
+  // Delete from storage
+  if (id) {
+    const all = await storage.getAll();
+    const key = pageKey();
+    all[key] = (all[key] || []).filter((r) => r.id !== id);
+    await storage.setAll(all);
   }
 }
 
@@ -286,6 +367,82 @@ function collectHighlightedText() {
     if (t) chunks.push(t);
   });
   return chunks.join("\n\n");
+}
+
+/* ---------- Restore saved highlights (robust search) ---------- */
+
+function tryRestoreRecord(rec) {
+  // Search the page text for the rec.quote, preferring occurrences that match prefix/suffix
+  const { text: pageText } = buildPageIndex();
+  const quote = rec.quote || "";
+  if (!quote) return false;
+
+  let idx = -1;
+  // Prefer exact prefix/suffix match
+  let from = 0;
+  const tryMatch = () => {
+    idx = pageText.indexOf(quote, from);
+    return idx !== -1;
+  };
+
+  while (tryMatch()) {
+    const pre = pageText.slice(Math.max(0, idx - rec.prefix.length), idx);
+    const suf = pageText.slice(idx + quote.length, idx + quote.length + rec.suffix.length);
+    const preOK = rec.prefix ? pre === rec.prefix : true;
+    const sufOK = rec.suffix ? suf === rec.suffix : true;
+    if (preOK && sufOK) break; // good match
+    from = idx + 1; // keep searching
+  }
+
+  // Fallback: first occurrence
+  if (idx === -1) idx = pageText.indexOf(quote);
+  if (idx === -1) return false;
+
+  const start = idx;
+  const end = idx + quote.length;
+  const r = pageOffsetsToRange(start, end);
+  if (!r) return false;
+
+  const wrapper = document.createElement("span");
+  wrapper.className = `gca-highlight gca-h-${rec.color}`;
+  wrapper.dataset.gcaId = rec.id;
+
+  try { r.surroundContents(wrapper); }
+  catch { const frag = r.extractContents(); wrapper.appendChild(frag); r.insertNode(wrapper); }
+
+  decorateHighlight(wrapper);
+  return true;
+}
+
+async function restoreHighlightsRobust() {
+  const all = await storage.getAll();
+  const key = pageKey();
+  const recs = all[key] || [];
+  if (!recs.length) return;
+
+  // oldest → newest (reduces nested-range conflicts)
+  recs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+  const pending = new Map(recs.map(r => [r.id, r]));
+  const attempt = () => {
+    for (const [id, rec] of [...pending]) {
+      if (tryRestoreRecord(rec)) pending.delete(id);
+    }
+    return pending.size === 0;
+  };
+
+  // 1) Try immediately
+  if (attempt()) return;
+
+  // 2) Retry while the DOM changes (SPA/lazy content) + a short timer loop (~20s)
+  const observer = new MutationObserver(() => { if (attempt()) observer.disconnect(); });
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
+  let tries = 0;
+  const maxTries = 120; // ~20s @166ms
+  const timer = setInterval(() => {
+    if (attempt() || ++tries >= maxTries) { clearInterval(timer); observer.disconnect(); }
+  }, 166);
 }
 
 /* ---------- Ask flow UI ---------- */
@@ -317,10 +474,7 @@ function openAskUI(requestId, originalText) {
 
 function hideAskUI() {
   if (STATE.askbar) STATE.askbar.style.display = "none";
-  if (STATE.ctxInfo) {
-    STATE.ctxInfo.style.display = "none";
-    STATE.ctxInfo.textContent = "";
-  }
+  if (STATE.ctxInfo) { STATE.ctxInfo.style.display = "none"; STATE.ctxInfo.textContent = ""; }
 }
 
 function submitAsk() {
@@ -328,8 +482,6 @@ function submitAsk() {
   if (!q) return;
 
   STATE.textarea.value = "Asking Gemini…";
-
-  // Disable while sending to avoid double submits
   STATE.askInput.disabled = true;
   STATE.askBtn.disabled = true;
 
@@ -337,9 +489,8 @@ function submitAsk() {
     type: "gca:ask:query",
     requestId: STATE.requestId,
     question: q,
-    context: STATE.originalText,    // <- selection or all highlights
+    context: STATE.originalText, // selection or all highlights
   }, () => {
-    // Re-enable (result/error will come as a separate message)
     STATE.askInput.disabled = false;
     STATE.askBtn.disabled = false;
   });
@@ -361,25 +512,29 @@ chrome.runtime.onMessage.addListener((msg) => {
       STATE.originalText = msg.originalText;
       showLoading(msg.actionLabel || "Working…");
       break;
-
     case "gca:needKey":
       if (STATE.requestId === msg.requestId) showNeedKey();
       break;
-
     case "gca:result":
       if (!STATE.requestId || STATE.requestId === msg.requestId) showResult(msg.result);
       break;
-
     case "gca:error":
       showError(msg.message || "Unknown error");
       break;
-
     case "gca:ask:open":
       openAskUI(msg.requestId, msg.originalText);
       break;
-
     case "gca:highlight":
       highlightSelection(msg.color);
       break;
   }
 });
+
+/* ---------- Boot: restore saved highlights ---------- */
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", restoreHighlightsRobust, { once: true });
+} else {
+  restoreHighlightsRobust();
+}
+window.addEventListener("pageshow", restoreHighlightsRobust, { once: true });
