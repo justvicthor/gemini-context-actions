@@ -17,6 +17,19 @@ The result appears in a floating on-page panel with **Copy**, **Replace selectio
 
 ---
 
+## 📸 Screenshots
+
+**❓ Ask a question:**  
+![GCA > Ask a question](media/gif/ask_a_question.gif)
+
+**🌍 Translate:**  
+![GCA > Translate](media/gif/translate.gif)
+
+**🖍️ Highlight:**
+![GCA > Highlight](media/gif/highlight.gif)
+
+---
+
 ## 📦 Project structure
 
 ```
