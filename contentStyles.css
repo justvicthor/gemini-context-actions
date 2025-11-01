@@ -54,3 +54,126 @@
   font-size: 12px;
   color: #9ca3af;
 }
+
+#gca-panel .gca-ask {
+  display: none;              /* shown only for Ask */
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #0b1220;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+#gca-panel #gca-question {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.35);
+  background: #0f172a;
+  color: #e5e7eb;
+  outline: none;
+}
+
+#gca-panel #gca-question:focus {
+  border-color: rgba(99,102,241,0.65);
+}
+
+#gca-panel #gca-ask-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.35);
+  background: #1f2937;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+#gca-panel #gca-ask-btn:hover { background: #374151; }
+
+#gca-panel .gca-ctxinfo {
+  padding: 6px 10px 0;
+  font-size: 12px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline highlights created by the extension */
+.gca-highlight {
+  padding: 0 0.1em;
+  border-radius: 3px;
+}
+
+/* Colors */
+.gca-h-yellow { background: #fff59d; color: #111827; }
+.gca-h-orange { background: #ffcc80; color: #111827; }
+.gca-h-red    { background: #ff8a80; color: #111827; }
+.gca-h-green  { background: #a5d6a7; color: #111827; }
+.gca-h-cyan   { background: #80deea; color: #111827; }
+.gca-h-purple { background: #ce93d8; color: #111827; }
+
+/* Context info strip under Ask bar */
+#gca-panel .gca-ctxinfo {
+  padding: 6px 10px 0;
+  font-size: 12px;
+  color: #9ca3af;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline highlights created by the extension */
+.gca-highlight {
+  position: relative;
+  padding: 0 0.1em;
+  border-radius: 3px;
+  transition: box-shadow 160ms ease, outline-color 160ms ease;
+  outline: 2px solid transparent; /* becomes visible on hover/active */
+}
+
+/* Colors */
+.gca-h-yellow { background: #fff59d; color: #111827; }
+.gca-h-orange { background: #ffcc80; color: #111827; }
+.gca-h-red    { background: #ff8a80; color: #111827; }
+.gca-h-green  { background: #a5d6a7; color: #111827; }
+.gca-h-cyan   { background: #80deea; color: #111827; }
+.gca-h-purple { background: #ce93d8; color: #111827; }
+
+/* Hover/active affordance */
+.gca-highlight:hover,
+.gca-highlight.gca-h-active {
+  outline-color: rgba(0,0,0,0.45);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;
+}
+
+/* Small remove bubble */
+.gca-handle {
+  position: absolute;
+  left: -10px;
+  top: -9px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #e5e7eb;
+  border: 1px solid rgba(0,0,0,0.55);
+  font-size: 12px;
+  line-height: 14px;
+  text-align: center;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: none;
+  z-index: 2147483646;
+  user-select: none;
+}
+
+/* Show bubble on hover or when the highlight is clicked (sticky) */
+.gca-highlight:hover > .gca-handle,
+.gca-highlight.gca-h-active > .gca-handle {
+  display: inline-block;
+}
+
+/* Don't let the bubble get selected with text */
+.gca-handle::selection { background: transparent; }
+
+
