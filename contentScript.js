@@ -1,4 +1,6 @@
-// contentScript.js — Floating panel + highlighting with removable bubbles + PERSISTENCE
+// contentScript.js — Floating panel + highlighting with removable bubbles + persistence
+
+/* ---------- Constants ---------- */
 
 const STORAGE_KEY = "gca_highlights_anchor_v3"; // bump schema version to reset all highlights
 
@@ -124,40 +126,37 @@ function showNeedKey(){const p=ensurePanel();placePanelNearSelection(p);p.queryS
 function showError(m){const p=ensurePanel();placePanelNearSelection(p);p.querySelector("#gca-title").textContent="Error";STATE.textarea.value=m;hideAskUI();}
 function showResult(t){const p=ensurePanel();p.querySelector("#gca-title").textContent="✦ Ask Gemini";STATE.textarea.value=t;hideAskUI();}
 
-/* ---------- Page text index ---------- */
+/* ---------- Page text index (exclude our own UI) ---------- */
 
-function allTextNodes(root){
-  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(n){
-    const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;
-    const tag=p.tagName; if(tag==="SCRIPT"||tag==="STYLE"||tag==="NOSCRIPT")return NodeFilter.FILTER_REJECT;
-    if(p.classList.contains("gca-handle"))return NodeFilter.FILTER_REJECT;
-    return NodeFilter.FILTER_ACCEPT;
-  }});
-  const out=[];let n;while((n=w.nextNode()))out.push(n);return out;
+function makeTextWalkerRoot() {
+  const filter = {
+    acceptNode(n) {
+      const p = n.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      const tag = p.tagName;
+      if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") return NodeFilter.FILTER_REJECT;
+      if (p.closest && p.closest("#gca-panel")) return NodeFilter.FILTER_REJECT;
+      if (p.classList && p.classList.contains("gca-handle")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  };
+  return document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, filter);
 }
+
+function allTextNodes(){
+  const w = makeTextWalkerRoot();
+  const out = []; let n;
+  while ((n = w.nextNode())) out.push(n);
+  return out;
+}
+
 function buildPageIndex(){
-  const nodes=allTextNodes(document.body);let text="";const seg=[];
-  for(const node of nodes){const s=text.length;text+=node.nodeValue;seg.push({node,start:s,end:text.length});}
-  return {text,segments:seg};
-}
-function pageOffsetsToRange(start,end){
-  const {segments}=buildPageIndex();const r=document.createRange();let a=false,b=false;
-  for(const seg of segments){
-    if(!a&&start>=seg.start&&start<=seg.end){r.setStart(seg.node,start-seg.start);a=true;}
-    if(!b&&end>=seg.start&&end<=seg.end){r.setEnd(seg.node,end-seg.start);b=true;break;}
-  }
-  return (a&&b)?r:null;
-}
-function rangeToPageOffsets(range){
-  const {segments}=buildPageIndex();let start=-1,end=-1;
-  for(const seg of segments){
-    if(seg.node===range.startContainer)start=seg.start+range.startOffset;
-    if(seg.node===range.endContainer)  end  =seg.start+range.endOffset;
-  }
-  return {start,end};
+  const nodes=allTextNodes(); let text=""; const seg=[];
+  for (const node of nodes) { const s=text.length; text+=node.nodeValue; seg.push({node,start:s,end:text.length}); }
+  return { text, segments: seg };
 }
 
-/* ---------- Whitespace helpers (now includes zero-width, soft hyphen, etc.) ---------- */
+/* ---------- Whitespace helpers ---------- */
 
 // \s + NBSP, NNBSP/BOM, narrow/thin/hair spaces, zero-width (ZWSP/ZWJ/ZWNJ), WORD JOINER, SOFT HYPHEN
 const WS = /[\s\u00A0\u202F\u2009\u200A\u2002-\u2008\u2000\u2001\u200B-\u200D\uFEFF\u2060\u00AD]/;
@@ -209,48 +208,77 @@ function decorateHighlight(span){
   }
 }
 
+/**
+ * NEW: Wrap first, then persist.
+ * This avoids failures when selections end at element boundaries.
+ */
 async function highlightSelection(color){
-  const sel=window.getSelection&&window.getSelection();
-  if(!sel||!sel.rangeCount||sel.isCollapsed){ try{showError("No text selected to highlight.");}catch{} return; }
-  const orig=sel.getRangeAt(0);
-  if(orig.commonAncestorContainer && orig.commonAncestorContainer.nodeType===1){
-    const el=orig.commonAncestorContainer;
-    if(el.tagName==="TEXTAREA"||el.tagName==="INPUT") return;
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || !sel.rangeCount || sel.isCollapsed) { try { showError("No text selected to highlight."); } catch {} return; }
+
+  // Avoid inputs/textareas
+  const r0 = sel.getRangeAt(0).cloneRange();
+  if (r0.commonAncestorContainer && r0.commonAncestorContainer.nodeType === 1) {
+    const el = r0.commonAncestorContainer;
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return;
   }
 
-  const {text:pageText}=buildPageIndex();
-  let {start,end}=rangeToPageOffsets(orig);
-  ({start,end}=trimPageOffsets(pageText,start,end));
-  if(end<=start) return;
+  // Create wrapper and try to surround; if it throws, extract/insert.
+  const id   = uuid();
+  const span = document.createElement("span");
+  span.className = `gca-highlight gca-h-${color}`;
+  span.dataset.gcaId = id;
 
-  const r=pageOffsetsToRange(start,end); if(!r) return;
-
-  const quote=pageText.slice(start,end);
-  const ctxLen=32;
-  const prefix=pageText.slice(Math.max(0,start-ctxLen),start);
-  const suffix=pageText.slice(end,Math.min(pageText.length,end+ctxLen));
-  const id=uuid();
-
-  const span=document.createElement("span");
-  span.className=`gca-highlight gca-h-${color}`; span.dataset.gcaId=id;
-
-  try{ r.surroundContents(span); }
-  catch{ const frag=r.extractContents(); span.appendChild(frag); r.insertNode(span); }
+  try {
+    r0.surroundContents(span);
+  } catch {
+    const frag = r0.extractContents();
+    span.appendChild(frag);
+    r0.insertNode(span);
+  }
 
   decorateHighlight(span);
-  normalizeAdjacentWhitespaceHighlights(span); // ← remove ghost neighbor if it’s only whitespace
+  normalizeAdjacentWhitespaceHighlights(span);
 
-  sel.removeAllRanges(); const nr=document.createRange(); nr.selectNodeContents(span); sel.addRange(nr);
+  // Reselect the new highlight for better UX
+  sel.removeAllRanges();
+  const nr = document.createRange();
+  nr.selectNodeContents(span);
+  sel.addRange(nr);
 
-  const all=await storage.getAll(); const key=pageKey(); const arr=all[key]||[];
-  arr.push({id,color,quote,prefix,suffix,createdAt:Date.now()}); all[key]=arr; await storage.setAll(all);
+  // ---- PERSISTENCE (quote + small context) ----
+  const quote = getTextWithoutHandles(span).trim();
+  const { text: pageText } = buildPageIndex(); // excludes our UI
+  let idx = pageText.indexOf(quote);
+
+  // If the exact slice is ambiguous or not found (rare), try a whitespace-normalized search.
+  if (idx === -1) {
+    const norm = (s) => s.replace(/\s+/g, " ").trim();
+    const nQuote = norm(quote);
+    const nPage  = norm(pageText);
+    const nIdx   = nPage.indexOf(nQuote);
+    if (nIdx !== -1) {
+      // Map back approximately (good enough because we store prefix/suffix anchors)
+      idx = Math.max(0, pageText.indexOf(quote.split(/\s+/)[0]));
+    }
+  }
+
+  const ctx = 32;
+  const prefix = idx !== -1 ? pageText.slice(Math.max(0, idx - ctx), idx) : "";
+  const suffix = idx !== -1 ? pageText.slice(idx + quote.length, Math.min(pageText.length, idx + quote.length + ctx)) : "";
+
+  const all = await storage.getAll();
+  const key = pageKey();
+  const arr = all[key] || [];
+  arr.push({ id, color, quote, prefix, suffix, createdAt: Date.now() });
+  all[key] = arr;
+  await storage.setAll(all);
 }
 
 async function unwrapHighlight(span){
   if(!span||!span.parentNode) return;
   const id=span.dataset.gcaId;
 
-  // Remove every span with the same id (if a ghost exists)
   document.querySelectorAll(`[data-gca-id="${CSS.escape(id||"")}"]`).forEach(s=>{
     const after=document.createRange(); after.setStartAfter(s); after.collapse(true);
     s.querySelectorAll(".gca-handle").forEach(n=>n.remove());
@@ -289,7 +317,14 @@ function tryRestoreRecord(rec){
   ({start,end}=trimPageOffsets(pageText,start,end));
   if(end<=start) return false;
 
-  const r=pageOffsetsToRange(start,end); if(!r) return false;
+  // Map to DOM range and wrap (this part can safely use offsets post-load)
+  const { segments } = buildPageIndex();
+  const r=document.createRange(); let a=false,b=false;
+  for(const seg of segments){
+    if(!a&&start>=seg.start&&start<=seg.end){r.setStart(seg.node,start-seg.start);a=true;}
+    if(!b&&end>=seg.start&&end<=seg.end){r.setEnd(seg.node,end-seg.start);b=true;break;}
+  }
+  if(!(a&&b)) return false;
 
   const span=document.createElement("span");
   span.className=`gca-highlight gca-h-${rec.color}`; span.dataset.gcaId=rec.id;
@@ -298,7 +333,7 @@ function tryRestoreRecord(rec){
   catch{ const frag=r.extractContents(); span.appendChild(frag); r.insertNode(span); }
 
   decorateHighlight(span);
-  normalizeAdjacentWhitespaceHighlights(span); // ← remove any whitespace-only ghost sibling
+  normalizeAdjacentWhitespaceHighlights(span);
   return true;
 }
 
